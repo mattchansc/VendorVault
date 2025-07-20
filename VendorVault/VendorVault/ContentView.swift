@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+import UIKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 struct ContentView: View {
     @State private var selectedTab: Tab = .edit
@@ -239,6 +242,7 @@ struct EditView: View {
     @State private var selectedCondition: Condition = .nearMint
     @State private var selectedLanguage: String = Locale.current.localizedString(forIdentifier: "en") ?? "English"
     @State private var selectedItemType: ItemType = .raw
+    @State private var qrCodeID: String = ""
     @State private var acquisitionPrice: String = ""
     @State private var setName: String = ""
     @State private var setNumber: String = ""
@@ -284,6 +288,27 @@ struct EditView: View {
     }
     
     let isoLanguageCodes: [String] = Locale.isoLanguageCodes
+    
+    func generateUniqueQRCode() -> String {
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let randomComponent = Int.random(in: 1000...9999)
+        return "VV-\(timestamp)-\(randomComponent)"
+    }
+    
+    func generateQRCode(from string: String) -> UIImage {
+        let context = CIContext()
+        let filter = CIFilter.qrCodeGenerator()
+        
+        filter.message = Data(string.utf8)
+        
+        if let outputImage = filter.outputImage {
+            if let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                return UIImage(cgImage: cgImage)
+            }
+        }
+        
+        return UIImage(systemName: "xmark.circle") ?? UIImage()
+    }
     
     func updateSetNumber() {
         guard !pokemonName.isEmpty && !setName.isEmpty else {
@@ -418,6 +443,44 @@ struct EditView: View {
                     }
                 }
                 .pickerStyle(MenuPickerStyle())
+            }
+            
+            Section(header: Text("QR Code ID")) {
+                TextField("QR Code ID", text: $qrCodeID)
+                    .onChange(of: qrCodeID) { _ in
+                        // No specific action on change, just for display
+                    }
+                    .onAppear {
+                        qrCodeID = generateUniqueQRCode()
+                    }
+                Text("Generated: \(qrCodeID)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                // Display the QR Code Image
+                if !qrCodeID.isEmpty {
+                    VStack {
+                        Text("Scannable QR Code")
+                            .font(.headline)
+                            .padding(.top)
+                        
+                        Image(uiImage: generateQRCode(from: qrCodeID))
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 200, height: 200)
+                            .padding()
+                            .background(Color.white)
+                            .cornerRadius(10)
+                            .shadow(radius: 5)
+                        
+                        Text("Scan this code to identify this card entry")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom)
+                    }
+                }
             }
             
             // Submit button section
