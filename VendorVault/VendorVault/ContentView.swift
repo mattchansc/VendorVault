@@ -133,23 +133,22 @@ class PokemonSetFetcher: ObservableObject {
 class CardNumberFetcher: ObservableObject {
     @Published var isLoading = false
     
-    func fetchCardNumber(cardName: String, pokemonName: String, setName: String, completion: @escaping (String?) -> Void) {
-        guard !cardName.isEmpty || !pokemonName.isEmpty || !setName.isEmpty else {
+    func fetchCardNumber(pokemonName: String, setName: String, completion: @escaping (String?) -> Void) {
+        guard !pokemonName.isEmpty && !setName.isEmpty else {
             completion(nil)
             return
         }
         
         isLoading = true
         
-        // Build search query
+        // Build search query using only pokemon name and set name
         var searchTerms: [String] = []
-        if !cardName.isEmpty { searchTerms.append("name:\"\(cardName)\"") }
-        if !pokemonName.isEmpty { searchTerms.append("name:\"\(pokemonName)\"") }
-        if !setName.isEmpty { searchTerms.append("set.name:\"\(setName)\"") }
+        searchTerms.append("name:\"\(pokemonName)\"")
+        searchTerms.append("set.name:\"\(setName)\"")
         
         let query = searchTerms.joined(separator: " ")
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let url = URL(string: "https://api.pokemontcg.io/v2/cards?q=\(encodedQuery)&pageSize=1")!
+        let url = URL(string: "https://api.pokemontcg.io/v2/cards?q=\(encodedQuery)")!
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -159,10 +158,47 @@ class CardNumberFetcher: ObservableObject {
             guard let data = data,
                   let result = try? JSONDecoder().decode(CardSearchResponse.self, from: data),
                   let firstCard = result.data.first else {
-                DispatchQueue.main.async { completion(nil) }
+                completion(nil)
                 return
             }
+            
             DispatchQueue.main.async { completion(firstCard.number) }
+        }.resume()
+    }
+}
+
+class CardImageFetcher: ObservableObject {
+    @Published var cardImageURL: String? = nil
+    @Published var isLoading = false
+    
+    func fetchCardImage(setName: String, setNumber: String, completion: @escaping (String?) -> Void) {
+        guard !setName.isEmpty && !setNumber.isEmpty else {
+            completion(nil)
+            return
+        }
+        
+        isLoading = true
+        
+        // Build search query using set name and set number
+        let query = "set.name:\"\(setName)\" number:\"\(setNumber)\""
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let url = URL(string: "https://api.pokemontcg.io/v2/cards?q=\(encodedQuery)")!
+        
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            defer { DispatchQueue.main.async { self.isLoading = false } }
+            guard let data = data,
+                  let result = try? JSONDecoder().decode(CardSearchResponse.self, from: data),
+                  let firstCard = result.data.first else {
+                completion(nil)
+                return
+            }
+            
+            DispatchQueue.main.async {
+                completion(firstCard.images.large)
+            }
         }.resume()
     }
 }
@@ -176,7 +212,17 @@ struct PokemonSet: Decodable {
 }
 
 struct CardSearchResponse: Decodable {
-    let data: [Card]
+    let data: [CardData]
+}
+
+struct CardData: Codable {
+    let number: String
+    let images: CardImages
+}
+
+struct CardImages: Codable {
+    let small: String
+    let large: String
 }
 
 struct Card: Decodable {
@@ -194,9 +240,13 @@ struct EditView: View {
     @State private var selectedLanguage: String = Locale.current.localizedString(forIdentifier: "en") ?? "English"
     @State private var setName: String = ""
     @State private var setNumber: String = ""
+    @State private var showPokemonDropdown: Bool = false
+    @State private var showSetDropdown: Bool = false
+    @State private var cardImageURL: String? = nil
     @ObservedObject var pokemonFetcher = PokemonNameFetcher()
     @ObservedObject var setFetcher = PokemonSetFetcher()
     @ObservedObject var cardNumberFetcher = CardNumberFetcher()
+    @ObservedObject var cardImageFetcher = CardImageFetcher()
     
     enum Condition: String, CaseIterable, Identifiable {
         case gemMint = "Gem Mint"
@@ -210,19 +260,44 @@ struct EditView: View {
     }
     
     var filteredPokemonNames: [String] {
-        if pokemonName.isEmpty { return [] }
-        return pokemonFetcher.allPokemonNames.filter { $0.localizedCaseInsensitiveContains(pokemonName) }
-    }
-    
-    // All ISO language codes and their localized names
-    let isoLanguageCodes: [String] = Locale.isoLanguageCodes
-    var languageNames: [String] {
-        isoLanguageCodes.compactMap { Locale.current.localizedString(forIdentifier: $0) }.sorted()
+        if pokemonName.isEmpty {
+            return []
+        }
+        return pokemonFetcher.allPokemonNames.filter { $0.localizedCaseInsensitiveContains(pokemonName) }.prefix(10).map { $0 }
     }
     
     var filteredSetNames: [String] {
-        if setName.isEmpty { return [] }
-        return setFetcher.allSetNames.filter { $0.localizedCaseInsensitiveContains(setName) }
+        if setName.isEmpty {
+            return []
+        }
+        return setFetcher.allSetNames.filter { $0.localizedCaseInsensitiveContains(setName) }.prefix(10).map { $0 }
+    }
+    
+    let isoLanguageCodes: [String] = Locale.isoLanguageCodes
+    
+    private func updateSetNumber() {
+        guard !pokemonName.isEmpty && !setName.isEmpty else {
+            setNumber = ""
+            return
+        }
+        
+        cardNumberFetcher.fetchCardNumber(pokemonName: pokemonName, setName: setName) { number in
+            if let number = number {
+                setNumber = number
+                updateCardImage()
+            }
+        }
+    }
+    
+    private func updateCardImage() {
+        guard !setName.isEmpty && !setNumber.isEmpty else {
+            cardImageURL = nil
+            return
+        }
+        
+        cardImageFetcher.fetchCardImage(setName: setName, setNumber: setNumber) { imageURL in
+            cardImageURL = imageURL
+        }
     }
     
     var body: some View {
@@ -230,61 +305,97 @@ struct EditView: View {
             Section(header: Text("Card Name")) {
                 TextField("Search or enter card name", text: $cardName)
                     .autocapitalization(.words)
-                    .onChange(of: cardName) { _ in
-                        updateSetNumber()
-                    }
                 // Placeholder for card name search results
             }
+            
             Section(header: Text("Pokemon Name")) {
-                TextField("Search or enter Pokémon name", text: $pokemonName)
+                TextField("Search Pokemon name", text: $pokemonName)
                     .autocapitalization(.words)
-                    .onAppear { pokemonFetcher.fetchPokemonNames() }
                     .onChange(of: pokemonName) { _ in
+                        showPokemonDropdown = !pokemonName.isEmpty && !filteredPokemonNames.isEmpty
                         updateSetNumber()
                     }
-                if pokemonFetcher.isLoading {
-                    ProgressView("Loading Pokémon names...")
-                } else if !filteredPokemonNames.isEmpty {
-                    List(filteredPokemonNames, id: \.self) { name in
+                    .onAppear {
+                        pokemonFetcher.fetchPokemonNames()
+                    }
+                
+                if showPokemonDropdown && !filteredPokemonNames.isEmpty {
+                    ForEach(filteredPokemonNames, id: \.self) { name in
                         Button(action: {
                             pokemonName = name
+                            showPokemonDropdown = false
+                            updateSetNumber()
                         }) {
                             Text(name)
+                                .foregroundColor(.primary)
                         }
                     }
-                    .frame(maxHeight: 120)
                 }
             }
+            
             Section(header: Text("Set Name")) {
-                TextField("Search or enter set name", text: $setName)
+                TextField("Search set name", text: $setName)
                     .autocapitalization(.words)
-                    .onAppear { setFetcher.fetchSetNames() }
                     .onChange(of: setName) { _ in
+                        showSetDropdown = !setName.isEmpty && !filteredSetNames.isEmpty
                         updateSetNumber()
+                        updateCardImage()
                     }
-                if setFetcher.isLoading {
-                    ProgressView("Loading set names...")
-                } else if !filteredSetNames.isEmpty {
-                    List(filteredSetNames, id: \.self) { name in
+                    .onAppear {
+                        setFetcher.fetchSetNames()
+                    }
+                
+                if showSetDropdown && !filteredSetNames.isEmpty {
+                    ForEach(filteredSetNames, id: \.self) { name in
                         Button(action: {
                             setName = name
+                            showSetDropdown = false
+                            updateSetNumber()
+                            updateCardImage()
                         }) {
                             Text(name)
+                                .foregroundColor(.primary)
                         }
                     }
-                    .frame(maxHeight: 120)
                 }
             }
+            
             Section(header: Text("Set Number")) {
                 HStack {
                     TextField("Set number", text: $setNumber)
                         .keyboardType(.numberPad)
+                        .onChange(of: setNumber) { _ in
+                            updateCardImage()
+                        }
+                    
                     if cardNumberFetcher.isLoading {
                         ProgressView()
                             .scaleEffect(0.8)
                     }
                 }
             }
+            
+            Section(header: Text("Card Image")) {
+                if let imageURL = cardImageURL {
+                    AsyncImage(url: URL(string: imageURL)) { image in
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: 300)
+                    } placeholder: {
+                        ProgressView()
+                            .frame(height: 200)
+                    }
+                } else if cardImageFetcher.isLoading {
+                    ProgressView("Loading card image...")
+                        .frame(height: 200)
+                } else {
+                    Text("No card image available")
+                        .foregroundColor(.secondary)
+                        .frame(height: 100)
+                }
+            }
+            
             Section(header: Text("Condition")) {
                 Picker("Condition", selection: $selectedCondition) {
                     ForEach(Condition.allCases) { condition in
@@ -293,26 +404,19 @@ struct EditView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
             }
+            
             Section(header: Text("Language")) {
                 Picker("Language", selection: $selectedLanguage) {
-                    ForEach(languageNames, id: \.self) { language in
+                    ForEach(isoLanguageCodes.compactMap { code in
+                        Locale.current.localizedString(forIdentifier: code)
+                    }.sorted(), id: \.self) { language in
                         Text(language).tag(language)
                     }
                 }
                 .pickerStyle(MenuPickerStyle())
             }
         }
-    }
-    
-    private func updateSetNumber() {
-        // Debounce the API call to avoid too many requests
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            cardNumberFetcher.fetchCardNumber(cardName: cardName, pokemonName: pokemonName, setName: setName) { number in
-                if let number = number {
-                    setNumber = number
-                }
-            }
-        }
+        .navigationTitle("Edit Card")
     }
 }
 
