@@ -238,6 +238,8 @@ struct EditView: View {
     @State private var pokemonName: String = ""
     @State private var selectedCondition: Condition = .gemMint
     @State private var selectedLanguage: String = Locale.current.localizedString(forIdentifier: "en") ?? "English"
+    @State private var selectedItemType: ItemType = .raw
+    @State private var acquisitionPrice: String = ""
     @State private var setName: String = ""
     @State private var setNumber: String = ""
     @State private var showPokemonDropdown: Bool = false
@@ -255,6 +257,15 @@ struct EditView: View {
         case moderatelyPlayed = "Moderately Played"
         case heavilyPlayed = "Heavily Played"
         case damaged = "Damaged"
+        
+        var id: String { rawValue }
+    }
+    
+    enum ItemType: String, CaseIterable, Identifiable {
+        case sealed = "Sealed"
+        case slabs = "Slabs"
+        case raw = "Raw"
+        case other = "Other"
         
         var id: String { rawValue }
     }
@@ -302,14 +313,47 @@ struct EditView: View {
     
     var body: some View {
         Form {
-            Section(header: Text("Card Name")) {
-                TextField("Search or enter card name", text: $cardName)
+            Section(header: Text("Set Name")) {
+                TextField("Search or enter set name", text: $setName)
                     .autocapitalization(.words)
-                // Placeholder for card name search results
+                    .onChange(of: setName) { _ in
+                        showSetDropdown = !setName.isEmpty && !filteredSetNames.isEmpty
+                        updateSetNumber()
+                    }
+                    .onAppear {
+                        setFetcher.fetchSetNames()
+                    }
+                
+                if showSetDropdown && !filteredSetNames.isEmpty {
+                    List(filteredSetNames, id: \.self) { name in
+                        Button(action: {
+                            setName = name
+                            showSetDropdown = false
+                        }) {
+                            Text(name)
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    .frame(maxHeight: 150)
+                }
+            }
+            
+            Section(header: Text("Set Number")) {
+                HStack {
+                    TextField("Card set number", text: $setNumber)
+                        .keyboardType(.numberPad)
+                        .onChange(of: setNumber) { _ in
+                            updateCardImage()
+                        }
+                    if cardNumberFetcher.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    }
+                }
             }
             
             Section(header: Text("Pokemon Name")) {
-                TextField("Search Pokemon name", text: $pokemonName)
+                TextField("Search or enter Pokemon name", text: $pokemonName)
                     .autocapitalization(.words)
                     .onChange(of: pokemonName) { _ in
                         showPokemonDropdown = !pokemonName.isEmpty && !filteredPokemonNames.isEmpty
@@ -320,80 +364,39 @@ struct EditView: View {
                     }
                 
                 if showPokemonDropdown && !filteredPokemonNames.isEmpty {
-                    ForEach(filteredPokemonNames, id: \.self) { name in
+                    List(filteredPokemonNames, id: \.self) { name in
                         Button(action: {
                             pokemonName = name
                             showPokemonDropdown = false
-                            updateSetNumber()
                         }) {
                             Text(name)
                                 .foregroundColor(.primary)
                         }
                     }
+                    .frame(maxHeight: 150)
                 }
             }
             
-            Section(header: Text("Set Name")) {
-                TextField("Search set name", text: $setName)
-                    .autocapitalization(.words)
-                    .onChange(of: setName) { _ in
-                        showSetDropdown = !setName.isEmpty && !filteredSetNames.isEmpty
-                        updateSetNumber()
-                        updateCardImage()
-                    }
-                    .onAppear {
-                        setFetcher.fetchSetNames()
-                    }
-                
-                if showSetDropdown && !filteredSetNames.isEmpty {
-                    ForEach(filteredSetNames, id: \.self) { name in
-                        Button(action: {
-                            setName = name
-                            showSetDropdown = false
-                            updateSetNumber()
-                            updateCardImage()
-                        }) {
-                            Text(name)
-                                .foregroundColor(.primary)
-                        }
-                    }
-                }
-            }
-            
-            Section(header: Text("Set Number")) {
+            Section(header: Text("Acquisition Price")) {
                 HStack {
-                    TextField("Set number", text: $setNumber)
-                        .keyboardType(.numberPad)
-                        .onChange(of: setNumber) { _ in
-                            updateCardImage()
+                    Text("$")
+                        .foregroundColor(.secondary)
+                    TextField("0.00", text: $acquisitionPrice)
+                        .keyboardType(.decimalPad)
+                        .onChange(of: acquisitionPrice) { newValue in
+                            // Format the input to ensure it's a valid currency format
+                            let filtered = newValue.filter { "0123456789.".contains($0) }
+                            if filtered != newValue {
+                                acquisitionPrice = filtered
+                            }
                         }
-                    
-                    if cardNumberFetcher.isLoading {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
                 }
             }
             
-            Section(header: Text("Card Image")) {
-                if let imageURL = cardImageURL {
-                    AsyncImage(url: URL(string: imageURL)) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 300)
-                    } placeholder: {
-                        ProgressView()
-                            .frame(height: 200)
-                    }
-                } else if cardImageFetcher.isLoading {
-                    ProgressView("Loading card image...")
-                        .frame(height: 200)
-                } else {
-                    Text("No card image available")
-                        .foregroundColor(.secondary)
-                        .frame(height: 100)
-                }
+            Section(header: Text("Card Name")) {
+                TextField("Search or enter card name", text: $cardName)
+                    .autocapitalization(.words)
+                // Placeholder for card name search results
             }
             
             Section(header: Text("Condition")) {
@@ -411,6 +414,15 @@ struct EditView: View {
                         Locale.current.localizedString(forIdentifier: code)
                     }.sorted(), id: \.self) { language in
                         Text(language).tag(language)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+            }
+            
+            Section(header: Text("Item Type")) {
+                Picker("Item Type", selection: $selectedItemType) {
+                    ForEach(ItemType.allCases) { itemType in
+                        Text(itemType.rawValue).tag(itemType)
                     }
                 }
                 .pickerStyle(MenuPickerStyle())
