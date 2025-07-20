@@ -450,8 +450,27 @@ struct EditView: View {
 
 struct InventoryView: View {
     var body: some View {
-        VStack {
-            Text("Inventory Tab")
+        NavigationView {
+            List {
+                Section(header: Text("Incomplete Inventory")) {
+                    // Placeholder items for incomplete inventory
+                    Text("Pikachu - Base Set - Missing condition")
+                        .foregroundColor(.secondary)
+                    Text("Charizard - Base Set - Missing set number")
+                        .foregroundColor(.secondary)
+                    Text("Blastoise - Base Set - Missing acquisition price")
+                        .foregroundColor(.secondary)
+                }
+                
+                Section(header: Text("Inventory")) {
+                    // Placeholder items for complete inventory
+                    Text("Mewtwo - Base Set #150 - Near Mint")
+                    Text("Alakazam - Base Set #1 - Lightly Played")
+                    Text("Venusaur - Base Set #15 - Near Mint")
+                    Text("Gyarados - Base Set #6 - Gem Mint")
+                }
+            }
+            .navigationTitle("Inventory")
         }
     }
 }
@@ -467,8 +486,55 @@ struct CameraView: View {
 
 struct SummaryView: View {
     var body: some View {
-        VStack {
-            Text("Summary Tab")
+        NavigationView {
+            List {
+                Section(header: Text("Financial Overview")) {
+                    HStack {
+                        Text("Expenses")
+                        Spacer()
+                        Text("$1,247.50")
+                            .foregroundColor(.red)
+                    }
+                    
+                    HStack {
+                        Text("Net Profit")
+                        Spacer()
+                        Text("$3,892.25")
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                Section(header: Text("Show Performance")) {
+                    HStack {
+                        Text("Pokemon World Championships 2024")
+                        Spacer()
+                        Text("$1,250.00")
+                            .foregroundColor(.green)
+                    }
+                    
+                    HStack {
+                        Text("Local Card Show - Spring")
+                        Spacer()
+                        Text("$875.50")
+                            .foregroundColor(.green)
+                    }
+                    
+                    HStack {
+                        Text("Comic Con Trading")
+                        Spacer()
+                        Text("$1,150.75")
+                            .foregroundColor(.green)
+                    }
+                    
+                    HStack {
+                        Text("Regional Tournament")
+                        Spacer()
+                        Text("$616.00")
+                            .foregroundColor(.green)
+                    }
+                }
+            }
+            .navigationTitle("Summary")
         }
     }
 }
