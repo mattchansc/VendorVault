@@ -236,7 +236,7 @@ struct EditView: View {
     // var filteredCardNames: [String] { ... }
 
     @State private var pokemonName: String = ""
-    @State private var selectedCondition: Condition = .gemMint
+    @State private var selectedCondition: Condition = .nearMint
     @State private var selectedLanguage: String = Locale.current.localizedString(forIdentifier: "en") ?? "English"
     @State private var selectedItemType: ItemType = .raw
     @State private var acquisitionPrice: String = ""
@@ -244,7 +244,6 @@ struct EditView: View {
     @State private var setNumber: String = ""
     @State private var showPokemonDropdown: Bool = false
     @State private var showSetDropdown: Bool = false
-    @State private var cardImageURL: String? = nil
     @ObservedObject var pokemonFetcher = PokemonNameFetcher()
     @ObservedObject var setFetcher = PokemonSetFetcher()
     @ObservedObject var cardNumberFetcher = CardNumberFetcher()
@@ -286,28 +285,21 @@ struct EditView: View {
     
     let isoLanguageCodes: [String] = Locale.isoLanguageCodes
     
-    private func updateSetNumber() {
+    func updateSetNumber() {
         guard !pokemonName.isEmpty && !setName.isEmpty else {
             setNumber = ""
             return
         }
         
-        cardNumberFetcher.fetchCardNumber(pokemonName: pokemonName, setName: setName) { number in
-            if let number = number {
-                setNumber = number
-                updateCardImage()
+        // Debounce API calls
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            cardNumberFetcher.fetchCardNumber(pokemonName: pokemonName, setName: setName) { number in
+                if let number = number {
+                    setNumber = number
+                } else {
+                    setNumber = ""
+                }
             }
-        }
-    }
-    
-    private func updateCardImage() {
-        guard !setName.isEmpty && !setNumber.isEmpty else {
-            cardImageURL = nil
-            return
-        }
-        
-        cardImageFetcher.fetchCardImage(setName: setName, setNumber: setNumber) { imageURL in
-            cardImageURL = imageURL
         }
     }
     
@@ -343,7 +335,7 @@ struct EditView: View {
                     TextField("Card set number", text: $setNumber)
                         .keyboardType(.numberPad)
                         .onChange(of: setNumber) { _ in
-                            updateCardImage()
+                            // updateCardImage() // Removed as per edit hint
                         }
                     if cardNumberFetcher.isLoading {
                         ProgressView()
@@ -427,8 +419,32 @@ struct EditView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
             }
+            
+            // Submit button section
+            Section {
+                Button(action: {
+                    // TODO: Implement submit action to save/process the card data
+                    print("Submit button tapped - implement save functionality here")
+                }) {
+                    HStack {
+                        Spacer()
+                        Text("Submit")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color.blue)
+                    .cornerRadius(10)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
-        .navigationTitle("Edit Card")
+        .navigationTitle("Add or edit card")
+        .onAppear {
+            pokemonFetcher.fetchPokemonNames()
+            setFetcher.fetchSetNames()
+        }
     }
 }
 
