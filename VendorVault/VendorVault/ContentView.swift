@@ -244,10 +244,16 @@ struct EditView: View {
     @State private var setNumber: String = ""
     @State private var showPokemonDropdown: Bool = false
     @State private var showSetDropdown: Bool = false
+    @State private var isSaving: Bool = false
+    @State private var showSuccessAlert: Bool = false
+    @State private var showErrorAlert: Bool = false
+    @State private var errorMessage: String = ""
+    
     @ObservedObject var pokemonFetcher = PokemonNameFetcher()
     @ObservedObject var setFetcher = PokemonSetFetcher()
     @ObservedObject var cardNumberFetcher = CardNumberFetcher()
     @ObservedObject var cardImageFetcher = CardImageFetcher()
+    @StateObject private var firebaseService = FirebaseService()
     
     enum Condition: String, CaseIterable, Identifiable {
         case gemMint = "Gem Mint"
@@ -301,6 +307,61 @@ struct EditView: View {
                 }
             }
         }
+    }
+    
+    func saveCard() {
+        guard !pokemonName.isEmpty && !setName.isEmpty && !acquisitionPrice.isEmpty else {
+            errorMessage = "Please fill in all required fields (Pokemon name, Set name, and Acquisition price)"
+            showErrorAlert = true
+            return
+        }
+        
+        guard let card = PokemonCard.createFromForm(
+            cardName: cardName,
+            pokemonName: pokemonName,
+            setName: setName,
+            setNumber: setNumber,
+            condition: selectedCondition.rawValue,
+            language: selectedLanguage,
+            itemType: selectedItemType.rawValue,
+            acquisitionPrice: acquisitionPrice,
+            cardImageURL: cardImageFetcher.cardImageURL
+        ) else {
+            errorMessage = "Invalid acquisition price format"
+            showErrorAlert = true
+            return
+        }
+        
+        isSaving = true
+        
+        Task {
+            do {
+                try await firebaseService.saveCard(card)
+                await MainActor.run {
+                    isSaving = false
+                    showSuccessAlert = true
+                    clearForm()
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+    
+    func clearForm() {
+        cardName = ""
+        pokemonName = ""
+        selectedCondition = .nearMint
+        selectedLanguage = Locale.current.localizedString(forIdentifier: "en") ?? "English"
+        selectedItemType = .raw
+        acquisitionPrice = ""
+        setName = ""
+        setNumber = ""
+        cardImageFetcher.cardImageURL = nil
     }
     
     var body: some View {
@@ -423,21 +484,27 @@ struct EditView: View {
             // Submit button section
             Section {
                 Button(action: {
-                    // TODO: Implement submit action to save/process the card data
-                    print("Submit button tapped - implement save functionality here")
+                    saveCard()
                 }) {
                     HStack {
                         Spacer()
-                        Text("Submit")
-                            .font(.headline)
-                            .foregroundColor(.white)
+                        if isSaving {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        } else {
+                            Text("Submit")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                        }
                         Spacer()
                     }
                     .padding()
-                    .background(Color.blue)
+                    .background(isSaving ? Color.gray : Color.blue)
                     .cornerRadius(10)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .disabled(isSaving)
             }
         }
         .navigationTitle("Add or edit card")
@@ -445,14 +512,133 @@ struct EditView: View {
             pokemonFetcher.fetchPokemonNames()
             setFetcher.fetchSetNames()
         }
+        .alert("Success", isPresented: $showSuccessAlert) {
+            Button("OK") { }
+        } message: {
+            Text("Card saved successfully!")
+        }
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
     }
 }
 
 struct InventoryView: View {
+    @StateObject private var firebaseService = FirebaseService()
+    @State private var searchText = ""
+    
     var body: some View {
-        VStack {
-            Text("Inventory Tab")
+        NavigationView {
+            VStack {
+                if firebaseService.isLoading {
+                    ProgressView("Loading cards...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if firebaseService.cards.isEmpty {
+                    VStack(spacing: 20) {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 60))
+                            .foregroundColor(.gray)
+                        Text("No cards in inventory")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                        Text("Add your first card using the Edit tab")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(firebaseService.cards) { card in
+                            CardRowView(card: card, firebaseService: firebaseService)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Inventory")
+            .searchable(text: $searchText, prompt: "Search by Pokemon name")
+            .onChange(of: searchText) { newValue in
+                if newValue.isEmpty {
+                    Task {
+                        await firebaseService.loadCards()
+                    }
+                } else {
+                    Task {
+                        await firebaseService.searchCards(query: newValue)
+                    }
+                }
+            }
+            .refreshable {
+                await firebaseService.loadCards()
+            }
         }
+        .onAppear {
+            Task {
+                await firebaseService.loadCards()
+            }
+        }
+    }
+}
+
+struct CardRowView: View {
+    let card: PokemonCard
+    let firebaseService: FirebaseService
+    @State private var showingDeleteAlert = false
+    @State private var isDeleting = false
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(card.pokemonName)
+                    .font(.headline)
+                Text(card.setName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text("$\(String(format: "%.2f", card.acquisitionPrice))")
+                    .font(.subheadline)
+                    .foregroundColor(.blue)
+                Text(card.condition)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(action: {
+                showingDeleteAlert = true
+            }) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+                    .font(.system(size: 16))
+                    .padding(6)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .alert("Delete Card", isPresented: $showingDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        isDeleting = true
+                        do {
+                            try await firebaseService.deleteCard(card)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            showingErrorAlert = true
+                        }
+                        isDeleting = false
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to delete this card?")
+            }
+            .alert("Error", isPresented: $showingErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 }
 
