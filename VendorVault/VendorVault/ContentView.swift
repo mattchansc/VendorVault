@@ -242,10 +242,16 @@ struct EditView: View {
     @State private var setNumber: String = ""
     @State private var showPokemonDropdown: Bool = false
     @State private var showSetDropdown: Bool = false
+    @State private var isSaving: Bool = false
+    @State private var showSuccessAlert: Bool = false
+    @State private var showErrorAlert: Bool = false
+    @State private var errorMessage: String = ""
+    
     @ObservedObject var pokemonFetcher = PokemonNameFetcher()
     @ObservedObject var setFetcher = PokemonSetFetcher()
     @ObservedObject var cardNumberFetcher = CardNumberFetcher()
     @ObservedObject var cardImageFetcher = CardImageFetcher()
+    @StateObject private var firebaseService = FirebaseService()
     
     enum Condition: String, CaseIterable, Identifiable {
         case gemMint = "Gem Mint"
@@ -320,6 +326,61 @@ struct EditView: View {
                 }
             }
         }
+    }
+    
+    func saveCard() {
+        guard !pokemonName.isEmpty && !setName.isEmpty && !acquisitionPrice.isEmpty else {
+            errorMessage = "Please fill in all required fields (Pokemon name, Set name, and Acquisition price)"
+            showErrorAlert = true
+            return
+        }
+        
+        guard let card = PokemonCard.createFromForm(
+            cardName: cardName,
+            pokemonName: pokemonName,
+            setName: setName,
+            setNumber: setNumber,
+            condition: selectedCondition.rawValue,
+            language: selectedLanguage,
+            itemType: selectedItemType.rawValue,
+            acquisitionPrice: acquisitionPrice,
+            cardImageURL: cardImageFetcher.cardImageURL
+        ) else {
+            errorMessage = "Invalid acquisition price format"
+            showErrorAlert = true
+            return
+        }
+        
+        isSaving = true
+        
+        Task {
+            do {
+                try await firebaseService.saveCard(card)
+                await MainActor.run {
+                    isSaving = false
+                    showSuccessAlert = true
+                    clearForm()
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+    
+    func clearForm() {
+        cardName = ""
+        pokemonName = ""
+        selectedCondition = .nearMint
+        selectedLanguage = Locale.current.localizedString(forIdentifier: "en") ?? "English"
+        selectedItemType = .raw
+        acquisitionPrice = ""
+        setName = ""
+        setNumber = ""
+        cardImageFetcher.cardImageURL = nil
     }
     
     var body: some View {
@@ -535,15 +596,24 @@ struct EditView: View {
                 // Submit button section
                 Section {
                     Button(action: {
-                        // TODO: Implement submit action to save/process the card data
-                        print("Submit button tapped - implement save functionality here")
+                        saveCard()
                     }) {
                         HStack {
                             Spacer()
-                            Text("Submit Card")
-                                .font(.modernHeadline())
-                                .fontWeight(.semibold)
-                                .foregroundColor(.black)
+                            if isSaving {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                    .scaleEffect(0.8)
+                                Text("Saving...")
+                                    .font(.modernHeadline())
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.black)
+                            } else {
+                                Text("Submit Card")
+                                    .font(.modernHeadline())
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.black)
+                            }
                             Spacer()
                         }
                         .padding()
@@ -558,6 +628,17 @@ struct EditView: View {
                         .shadow(color: .cyan.opacity(0.3), radius: 5, x: 0, y: 2)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .disabled(isSaving)
+                }
+                .alert("Success", isPresented: $showSuccessAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text("Card saved successfully!")
+                }
+                .alert("Error", isPresented: $showErrorAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(errorMessage)
                 }
                 .listRowBackground(Color.clear)
             }
@@ -577,75 +658,65 @@ struct EditView: View {
 }
 
 struct InventoryView: View {
+    @StateObject private var firebaseService = FirebaseService()
+    @State private var searchText = ""
+    
+    var filteredCards: [PokemonCard] {
+        if searchText.isEmpty {
+            return firebaseService.cards
+        } else {
+            return firebaseService.cards.filter { card in
+                card.pokemonName.localizedCaseInsensitiveContains(searchText) ||
+                card.setName.localizedCaseInsensitiveContains(searchText) ||
+                card.cardName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
+    
     var body: some View {
         NavigationView {
-            List {
-                Section(header: HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                    Text("Incomplete Inventory")
-                        .foregroundColor(.orange)
-                        .font(.modernHeadline())
-                }) {
-                    InventoryCard(
-                        title: "Pikachu - Base Set",
-                        subtitle: "Missing condition",
-                        isIncomplete: true,
-                        icon: "questionmark.circle.fill"
-                    )
-                    
-                    InventoryCard(
-                        title: "Charizard - Base Set",
-                        subtitle: "Missing set number",
-                        isIncomplete: true,
-                        icon: "number.circle.fill"
-                    )
-                    
-                    InventoryCard(
-                        title: "Blastoise - Base Set",
-                        subtitle: "Missing acquisition price",
-                        isIncomplete: true,
-                        icon: "dollarsign.circle.fill"
-                    )
+            VStack {
+                if firebaseService.isLoading {
+                    VStack {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .cyan))
+                        Text("Loading cards...")
+                            .font(.modernSubheadline())
+                            .foregroundColor(.secondary)
+                            .padding(.top)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                } else if firebaseService.cards.isEmpty {
+                    VStack(spacing: 20) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 60, design: .rounded))
+                            .foregroundColor(.secondary)
+                        
+                        Text("No Cards in Inventory")
+                            .font(.modernTitle2())
+                            .foregroundColor(.primary)
+                        
+                        Text("Add your first card using the 'Add Card' tab")
+                            .font(.modernBody())
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                } else {
+                    List {
+                        ForEach(filteredCards) { card in
+                            CardRowView(card: card, firebaseService: firebaseService)
+                        }
+                    }
+                    .searchable(text: $searchText, prompt: "Search cards...")
+                    .refreshable {
+                        await firebaseService.loadCards()
+                    }
                 }
-                .listRowBackground(Color.clear)
-                
-                Section(header: HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("Complete Inventory")
-                        .foregroundColor(.green)
-                        .font(.modernHeadline())
-                }) {
-                    InventoryCard(
-                        title: "Mewtwo - Base Set #150",
-                        subtitle: "Near Mint • $45.00",
-                        isIncomplete: false,
-                        icon: "star.fill"
-                    )
-                    
-                    InventoryCard(
-                        title: "Alakazam - Base Set #1",
-                        subtitle: "Lightly Played • $32.50",
-                        isIncomplete: false,
-                        icon: "star.fill"
-                    )
-                    
-                    InventoryCard(
-                        title: "Venusaur - Base Set #15",
-                        subtitle: "Near Mint • $38.75",
-                        isIncomplete: false,
-                        icon: "star.fill"
-                    )
-                    
-                    InventoryCard(
-                        title: "Gyarados - Base Set #6",
-                        subtitle: "Gem Mint • $125.00",
-                        isIncomplete: false,
-                        icon: "gem"
-                    )
-                }
-                .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .background(Color.black)
@@ -653,6 +724,11 @@ struct InventoryView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .onAppear {
+                Task {
+                    await firebaseService.loadCards()
+                }
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -958,5 +1034,67 @@ struct CameraPicker: UIViewControllerRepresentable {
             // Handle the captured image if needed
             parent.isPresented = false
         }
+    }
+}
+
+// MARK: - Card Row View
+struct CardRowView: View {
+    let card: PokemonCard
+    let firebaseService: FirebaseService
+    @State private var showingDeleteAlert = false
+    @State private var isDeleting = false
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(card.pokemonName)
+                    .font(.headline)
+                Text(card.setName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text("$\(String(format: "%.2f", card.acquisitionPrice))")
+                    .font(.subheadline)
+                    .foregroundColor(.blue)
+                Text(card.condition)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(action: {
+                showingDeleteAlert = true
+            }) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+                    .font(.system(size: 16))
+                    .padding(6)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .alert("Delete Card", isPresented: $showingDeleteAlert) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        isDeleting = true
+                        do {
+                            try await firebaseService.deleteCard(card)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            showingErrorAlert = true
+                        }
+                        isDeleting = false
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to delete this card?")
+            }
+            .alert("Error", isPresented: $showingErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 }
