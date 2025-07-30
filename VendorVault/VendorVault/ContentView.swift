@@ -43,42 +43,69 @@ extension Font {
 
 struct ContentView: View {
     var body: some View {
-        TabView {
-            EditView()
-                .tabItem {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Add Card")
-                        .font(.modernCaption())
-                }
-                .tag(0)
+        ZStack {
+            TabView {
+                EditView()
+                    .tabItem {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Card")
+                            .font(.modernCaption())
+                    }
+                    .tag(0)
+                
+                InventoryView()
+                    .tabItem {
+                        Image(systemName: "list.bullet.rectangle")
+                        Text("Inventory")
+                            .font(.modernCaption())
+                    }
+                    .tag(1)
+                
+                CameraView()
+                    .tabItem {
+                        Image(systemName: "camera.fill")
+                        Text("Camera")
+                            .font(.modernCaption())
+                    }
+                    .tag(2)
+                
+                SummaryView()
+                    .tabItem {
+                        Image(systemName: "chart.bar.fill")
+                        Text("Summary")
+                            .font(.modernCaption())
+                    }
+                    .tag(3)
+            }
+            .preferredColorScheme(.dark)
+            .accentColor(.cyan)
+            .background(Color.black.ignoresSafeArea())
             
-            InventoryView()
-                .tabItem {
-                    Image(systemName: "list.bullet.rectangle")
-                    Text("Inventory")
-                        .font(.modernCaption())
+            // Version indicator in top right
+            VStack {
+                HStack {
+                    Spacer()
+                    
+                    Text("v3.0.0")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.black.opacity(0.8))
+                                .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
+                        )
+                        .shadow(color: .cyan.opacity(0.4), radius: 3, x: 0, y: 2)
                 }
-                .tag(1)
-            
-            CameraView()
-                .tabItem {
-                    Image(systemName: "camera.fill")
-                    Text("Camera")
-                        .font(.modernCaption())
-                }
-                .tag(2)
-            
-            SummaryView()
-                .tabItem {
-                    Image(systemName: "chart.bar.fill")
-                    Text("Summary")
-                        .font(.modernCaption())
-                }
-                .tag(3)
+                .padding(.top, 50) // Reduced top padding
+                .padding(.trailing, 20) // Right padding
+                
+                Spacer()
+            }
+            .zIndex(1000) // Ensure it's on top
         }
-        .preferredColorScheme(.dark)
-        .accentColor(.cyan)
-        .background(Color.black.ignoresSafeArea())
     }
 }
 
@@ -252,6 +279,7 @@ struct EditView: View {
     @ObservedObject var cardNumberFetcher = CardNumberFetcher()
     @ObservedObject var cardImageFetcher = CardImageFetcher()
     @StateObject private var firebaseService = FirebaseService()
+    @EnvironmentObject var authService: AuthService
     
     enum Condition: String, CaseIterable, Identifiable {
         case gemMint = "Gem Mint"
@@ -329,6 +357,12 @@ struct EditView: View {
     }
     
     func saveCard() {
+        guard let userId = authService.user?.uid else {
+            errorMessage = "User not authenticated"
+            showErrorAlert = true
+            return
+        }
+        
         guard !pokemonName.isEmpty && !setName.isEmpty && !acquisitionPrice.isEmpty else {
             errorMessage = "Please fill in all required fields (Pokemon name, Set name, and Acquisition price)"
             showErrorAlert = true
@@ -660,6 +694,7 @@ struct EditView: View {
 struct InventoryView: View {
     @StateObject private var firebaseService = FirebaseService()
     @State private var searchText = ""
+    @EnvironmentObject var authService: AuthService
     
     var filteredCards: [PokemonCard] {
         if searchText.isEmpty {
@@ -724,6 +759,7 @@ struct InventoryView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+
             .onAppear {
                 Task {
                     await firebaseService.loadCards()
@@ -857,6 +893,9 @@ struct CameraView: View {
 }
 
 struct SummaryView: View {
+    @EnvironmentObject var authService: AuthService
+    @State private var showLogoutAlert = false
+    
     var body: some View {
         NavigationView {
             List {
@@ -915,6 +954,66 @@ struct SummaryView: View {
                     )
                 }
                 .listRowBackground(Color.clear)
+                
+                Section(header: HStack {
+                    Image(systemName: "person.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("Account")
+                        .foregroundColor(.orange)
+                        .font(.modernHeadline())
+                }) {
+                    HStack(spacing: 16) {
+                        Image(systemName: "envelope.fill")
+                            .font(.modernTitle2(weight: .medium))
+                            .foregroundColor(.cyan)
+                            .frame(width: 30, height: 30)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Email")
+                                .font(.modernHeadline())
+                                .foregroundColor(.primary)
+                            
+                            Text(authService.user?.email ?? "Unknown")
+                                .font(.modernSubheadline(weight: .regular))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.orange.opacity(0.1))
+                            .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                    )
+                    .shadow(color: .orange.opacity(0.2), radius: 5, x: 0, y: 2)
+                    
+                    Button(action: {
+                        showLogoutAlert = true
+                    }) {
+                        HStack(spacing: 16) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.modernTitle2(weight: .medium))
+                                .foregroundColor(.red)
+                                .frame(width: 30, height: 30)
+                            
+                            Text("Sign Out")
+                                .font(.modernHeadline())
+                                .foregroundColor(.red)
+                            
+                            Spacer()
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.red.opacity(0.1))
+                                .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                        )
+                        .shadow(color: .red.opacity(0.2), radius: 5, x: 0, y: 2)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .background(Color.black)
@@ -922,6 +1021,14 @@ struct SummaryView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .alert("Sign Out", isPresented: $showLogoutAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Sign Out", role: .destructive) {
+                    authService.signOut()
+                }
+            } message: {
+                Text("Are you sure you want to sign out?")
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -1098,3 +1205,5 @@ struct CardRowView: View {
         .padding(.horizontal, 4)
     }
 }
+
+

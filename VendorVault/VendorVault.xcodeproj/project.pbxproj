@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1D14E59F2E343B9B00B2313B /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1D14E59E2E343B9B00B2313B /* FirebaseCore */; };
 		1D14E5A12E343B9B00B2313B /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 1D14E5A02E343B9B00B2313B /* FirebaseFirestore */; };
+		1D14E5A32E343B9C00B2313B /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 1D14E5A22E343B9C00B2313B /* FirebaseAuth */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +60,7 @@
 			files = (
 				1D14E59F2E343B9B00B2313B /* FirebaseCore in Frameworks */,
 				1D14E5A12E343B9B00B2313B /* FirebaseFirestore in Frameworks */,
+				1D14E5A32E343B9C00B2313B /* FirebaseAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -619,6 +621,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1D14E59D2E343B9B00B2313B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		1D14E5A22E343B9C00B2313B /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1D14E59D2E343B9B00B2313B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
