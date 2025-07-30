@@ -10,13 +10,21 @@ import FirebaseCore
 
 @main
 struct VendorVaultApp: App {
+    @StateObject private var authService = AuthService()
+    
     init() {
         FirebaseApp.configure()
     }
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authService.isAuthenticated {
+                ContentView()
+                    .environmentObject(authService)
+            } else {
+                LoginView()
+                    .environmentObject(authService)
+            }
         }
     }
 }
