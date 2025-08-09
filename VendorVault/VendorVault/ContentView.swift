@@ -80,6 +80,31 @@ struct ContentView: View {
             .preferredColorScheme(.dark)
             .accentColor(.cyan)
             .background(Color.black.ignoresSafeArea())
+            
+            // Version indicator in top right
+            VStack {
+                HStack {
+                    Spacer()
+                    
+                    Text("v3.2.3")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.black.opacity(0.8))
+                                .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
+                        )
+                        .shadow(color: .cyan.opacity(0.4), radius: 3, x: 0, y: 2)
+                }
+                .padding(.top, 50) // Reduced top padding
+                .padding(.trailing, 20) // Right padding
+                
+                Spacer()
+            }
+            .zIndex(1000) // Ensure it's on top
         }
     }
 }

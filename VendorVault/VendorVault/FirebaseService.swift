@@ -25,6 +25,39 @@ class FirebaseService: ObservableObject {
     }
     private var currentPortfolioId: String?
     
+    // MARK: - User Aggregates (users/<uid> doc)
+    private func ensureUserAggregateDocExists() async throws {
+        guard let userId = currentUserId else {
+            throw NSError(domain: "AuthError", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+        let docRef = db.collection("users").document(userId)
+        let snapshot = try await docRef.getDocument()
+        if !snapshot.exists {
+            try await docRef.setData([
+                "Total Card Cost": 0.0,
+                "Total Revenue": 0.0,
+                "Cost": 0.0
+            ])
+        }
+    }
+    
+    // MARK: - Card completeness helper
+    private func computeIsComplete(card: PokemonCard, numericSetNumber: Int) -> Bool {
+        let requiredStrings: [String] = [
+            card.cardName,
+            card.pokemonName,
+            card.setName,
+            card.setNumber,
+            card.condition,
+            card.language,
+            card.itemType
+        ]
+        let stringsOk = requiredStrings.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let setNumberOk = numericSetNumber > 0
+        // acquisitionPrice and dateAdded are always present in model; treat them as complete
+        return stringsOk && setNumberOk
+    }
+    
     // MARK: - Portfolio Management
     
     func createDefaultPortfolio() async throws {
@@ -174,32 +207,46 @@ class FirebaseService: ObservableObject {
             throw NSError(domain: "AuthError", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
         
-        // Ensure we have a portfolio to work with
-        if currentPortfolioId == nil {
-            print("📝 No current portfolio, loading portfolios first")
-            await loadPortfolios()
-            
-            // Wait a moment for portfolio loading/creation to complete
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        }
+        // Ensure required user aggregate doc exists for the requested schema
+        try await ensureUserAggregateDocExists()
         
-        guard let portfolioId = currentPortfolioId else {
-            print("❌ Still no portfolio available after loading")
-            throw NSError(domain: "PortfolioError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No portfolio available"])
-        }
-        
-        print("💾 Saving card: \(card.cardName) to portfolio: \(portfolioId)")
+        print("💾 Saving card (no portfolio): \(card.cardName)")
         
         isLoading = true
         errorMessage = nil
         
         do {
+            // Convert setNumber to numeric to match schema and write directly to users/<uid>/cards
+            let numericSetNumber: Int = {
+                let digits = card.setNumber.filter { $0.isNumber }
+                return Int(digits) ?? 0
+            }()
+            
+            let isComplete = computeIsComplete(card: card, numericSetNumber: numericSetNumber)
+            
+            let cardData: [String: Any] = [
+                "acquisitionPrice": card.acquisitionPrice,
+                "cardName": card.cardName,
+                "Condition": card.condition,
+                "dateAdded": Timestamp(date: card.dateAdded),
+                "itemType": card.itemType,
+                "Language": card.language,
+                "pokemonName": card.pokemonName,
+                "setName": card.setName,
+                "setNumber": numericSetNumber,
+                "isComplete": isComplete
+            ]
+            
             let docRef = try await db.collection("users")
                 .document(userId)
-                .collection("portfolios")
-                .document(portfolioId)
                 .collection("cards")
-                .addDocument(from: card)
+                .addDocument(data: cardData)
+            
+            // Update user aggregates
+            try await db.collection("users").document(userId).setData([
+                "Total Card Cost": FieldValue.increment(card.acquisitionPrice),
+                "Cost": FieldValue.increment(card.acquisitionPrice)
+            ], merge: true)
             
             print("✅ Successfully saved card with ID: \(docRef.documentID)")
             
@@ -280,25 +327,7 @@ class FirebaseService: ObservableObject {
             return
         }
         
-        // If no portfolio is selected, try to load portfolios first
-        if currentPortfolioId == nil {
-            print("📝 No portfolio selected, loading portfolios first")
-            await loadPortfolios()
-            
-            // Wait a moment for the portfolio creation to complete
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        }
-        
-        guard let portfolioId = currentPortfolioId else {
-            print("❌ Still no portfolio available after loading")
-            await MainActor.run {
-                self.cards = []
-                self.isLoading = false
-            }
-            return
-        }
-        
-        print("🔍 Loading cards for user ID: \(userId), portfolio ID: \(portfolioId)")
+        print("🔍 Loading cards for user ID: \(userId) (no portfolio)")
         
         await MainActor.run {
             isLoading = true
@@ -307,24 +336,45 @@ class FirebaseService: ObservableObject {
         do {
             let snapshot = try await db.collection("users")
                 .document(userId)
-                .collection("portfolios")
-                .document(portfolioId)
                 .collection("cards")
                 .order(by: "dateAdded", descending: true)
                 .getDocuments()
             
-            let loadedCards = snapshot.documents.compactMap { document in
-                try? document.data(as: PokemonCard.self)
+            let loadedCards: [PokemonCard] = snapshot.documents.compactMap { document in
+                let data = document.data()
+                let acquisitionPrice = data["acquisitionPrice"] as? Double ?? 0.0
+                let cardName = data["cardName"] as? String ?? ""
+                let condition = data["Condition"] as? String ?? ""
+                let timestamp = data["dateAdded"] as? Timestamp ?? Timestamp(date: Date())
+                let itemType = data["itemType"] as? String ?? ""
+                let language = data["Language"] as? String ?? ""
+                let pokemonName = data["pokemonName"] as? String ?? ""
+                let setName = data["setName"] as? String ?? ""
+                let setNumberNumeric = data["setNumber"] as? Int ?? 0
+                let setNumber = String(setNumberNumeric)
+                let _ = data["isComplete"] as? Bool ?? false
+                
+                var card = PokemonCard(
+                    cardName: cardName,
+                    pokemonName: pokemonName,
+                    setName: setName,
+                    setNumber: setNumber,
+                    condition: condition,
+                    language: language,
+                    itemType: itemType,
+                    acquisitionPrice: acquisitionPrice,
+                    dateAdded: timestamp.dateValue(),
+                    cardImageURL: nil
+                )
+                card.id = document.documentID
+                return card
             }
-            
-            print("📄 Found \(loadedCards.count) cards in portfolio")
             
             await MainActor.run {
                 self.cards = loadedCards
                 self.isLoading = false
             }
         } catch {
-            print("❌ Failed to load cards: \(error.localizedDescription)")
             await MainActor.run {
                 self.errorMessage = "Failed to load cards: \(error.localizedDescription)"
                 self.isLoading = false
@@ -334,32 +384,22 @@ class FirebaseService: ObservableObject {
     
     func deleteCard(_ card: PokemonCard) async throws {
         guard let userId = currentUserId,
-              let portfolioId = currentPortfolioId,
               let cardId = card.id else {
-            print("❌ Error: Missing user ID, portfolio ID, or card ID")
+            print("❌ Error: Missing user ID or card ID")
             throw NSError(domain: "CardError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing required IDs"])
         }
         
-        print("🗑️ Attempting to delete card with ID: \(cardId)")
+        print("🗑️ Attempting to delete card with ID: \(cardId) (no portfolio)")
         
         do {
-            // Delete from Firebase first
             try await db.collection("users")
                 .document(userId)
-                .collection("portfolios")
-                .document(portfolioId)
                 .collection("cards")
                 .document(cardId)
                 .delete()
             
-            print("✅ Successfully deleted card from Firebase")
-            
-            // Then remove from local array
             await MainActor.run {
-                let initialCount = self.cards.count
                 self.cards.removeAll { $0.id == cardId }
-                let finalCount = self.cards.count
-                print("📊 Removed card from local array. Count: \(initialCount) -> \(finalCount)")
             }
         } catch {
             print("❌ Failed to delete card: \(error.localizedDescription)")
@@ -369,21 +409,39 @@ class FirebaseService: ObservableObject {
     
     func updateCard(_ card: PokemonCard) async throws {
         guard let userId = currentUserId,
-              let portfolioId = currentPortfolioId,
               let cardId = card.id else {
             return
         }
         
+        // Maintain numeric setNumber in Firestore
+        let numericSetNumber: Int = {
+            let digits = card.setNumber.filter { $0.isNumber }
+            return Int(digits) ?? 0
+        }()
+        
+        let isComplete = computeIsComplete(card: card, numericSetNumber: numericSetNumber)
+        
+        let cardData: [String: Any] = [
+            "acquisitionPrice": card.acquisitionPrice,
+            "cardName": card.cardName,
+            "Condition": card.condition,
+            "dateAdded": Timestamp(date: card.dateAdded),
+            "itemType": card.itemType,
+            "Language": card.language,
+            "pokemonName": card.pokemonName,
+            "setName": card.setName,
+            "setNumber": numericSetNumber,
+            "isComplete": isComplete
+        ]
+        
         do {
             try await db.collection("users")
                 .document(userId)
-                .collection("portfolios")
-                .document(portfolioId)
                 .collection("cards")
                 .document(cardId)
-                .setData(from: card)
+                .setData(cardData, merge: true)
             
-            await loadCards() // Refresh the list
+            await loadCards()
         } catch {
             await MainActor.run {
                 errorMessage = "Failed to update card: \(error.localizedDescription)"
@@ -393,8 +451,7 @@ class FirebaseService: ObservableObject {
     }
     
     func searchCards(query: String) async {
-        guard let userId = currentUserId,
-              let portfolioId = currentPortfolioId else {
+        guard let userId = currentUserId else {
             await MainActor.run {
                 self.cards = []
                 self.isLoading = false
@@ -409,15 +466,39 @@ class FirebaseService: ObservableObject {
         do {
             let snapshot = try await db.collection("users")
                 .document(userId)
-                .collection("portfolios")
-                .document(portfolioId)
                 .collection("cards")
                 .whereField("pokemonName", isGreaterThanOrEqualTo: query)
                 .whereField("pokemonName", isLessThan: query + "\u{f8ff}")
                 .getDocuments()
             
-            let searchedCards = snapshot.documents.compactMap { document in
-                try? document.data(as: PokemonCard.self)
+            let searchedCards: [PokemonCard] = snapshot.documents.compactMap { document in
+                let data = document.data()
+                let acquisitionPrice = data["acquisitionPrice"] as? Double ?? 0.0
+                let cardName = data["cardName"] as? String ?? ""
+                let condition = data["Condition"] as? String ?? ""
+                let timestamp = data["dateAdded"] as? Timestamp ?? Timestamp(date: Date())
+                let itemType = data["itemType"] as? String ?? ""
+                let language = data["Language"] as? String ?? ""
+                let pokemonName = data["pokemonName"] as? String ?? ""
+                let setName = data["setName"] as? String ?? ""
+                let setNumberNumeric = data["setNumber"] as? Int ?? 0
+                let setNumber = String(setNumberNumeric)
+                let _ = data["isComplete"] as? Bool ?? false
+                
+                var card = PokemonCard(
+                    cardName: cardName,
+                    pokemonName: pokemonName,
+                    setName: setName,
+                    setNumber: setNumber,
+                    condition: condition,
+                    language: language,
+                    itemType: itemType,
+                    acquisitionPrice: acquisitionPrice,
+                    dateAdded: timestamp.dateValue(),
+                    cardImageURL: nil
+                )
+                card.id = document.documentID
+                return card
             }
             
             await MainActor.run {
