@@ -80,31 +80,6 @@ struct ContentView: View {
             .preferredColorScheme(.dark)
             .accentColor(.cyan)
             .background(Color.black.ignoresSafeArea())
-            
-            // Version indicator in top right
-            VStack {
-                HStack {
-                    Spacer()
-                    
-                    Text("v3.0.0")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.cyan)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.black.opacity(0.8))
-                                .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
-                        )
-                        .shadow(color: .cyan.opacity(0.4), radius: 3, x: 0, y: 2)
-                }
-                .padding(.top, 50) // Reduced top padding
-                .padding(.trailing, 20) // Right padding
-                
-                Spacer()
-            }
-            .zIndex(1000) // Ensure it's on top
         }
     }
 }
@@ -695,6 +670,7 @@ struct InventoryView: View {
     @StateObject private var firebaseService = FirebaseService()
     @State private var searchText = ""
     @EnvironmentObject var authService: AuthService
+    @State private var inboxCount: Int = 0
     
     var filteredCards: [PokemonCard] {
         if searchText.isEmpty {
@@ -756,9 +732,39 @@ struct InventoryView: View {
             .scrollContentBackground(.hidden)
             .background(Color.black)
             .navigationTitle("Inventory")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        // TODO: Present inbox view
+                        // Example: reset badge for now
+                        if inboxCount > 0 { inboxCount = 0 } else { inboxCount = 3 }
+                    }) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "tray.full.fill")
+                                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                .foregroundColor(.cyan)
+                            if inboxCount > 0 {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.red)
+                                    Text("\(min(inboxCount, 99))")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundColor(.white)
+                                }
+                                .frame(width: 18, height: 18)
+                                .offset(x: 8, y: -8)
+                                .transition(.scale)
+                            }
+                        }
+                        .accessibilityLabel("Inbox")
+                        .accessibilityHint("Opens inbox notifications")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
 
             .onAppear {
                 Task {
