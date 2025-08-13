@@ -18,8 +18,24 @@ struct PokemonCard: Identifiable, Codable {
     let language: String
     let itemType: String
     let acquisitionPrice: Double
-    let dateAdded: Date
+    var dateAdded: Date
     let cardImageURL: String?
+    
+    // Computed property to determine if the card is complete
+    var isComplete: Bool {
+        let requiredStrings: [String] = [
+            cardName,
+            pokemonName,
+            setName,
+            setNumber,
+            condition,
+            language,
+            itemType
+        ]
+        let stringsOk = requiredStrings.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let setNumberOk = Int(setNumber) ?? 0 > 0
+        return stringsOk && setNumberOk
+    }
     
     enum CodingKeys: String, CodingKey {
         case id
