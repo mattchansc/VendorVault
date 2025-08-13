@@ -45,7 +45,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             TabView {
-                EditView()
+                EditView(showingEditSheet: .constant(false))
                     .tabItem {
                         Image(systemName: "plus.circle.fill")
                         Text("Add Card")
@@ -273,6 +273,11 @@ struct EditView: View {
     @State private var showSuccessAlert: Bool = false
     @State private var showErrorAlert: Bool = false
     @State private var errorMessage: String = ""
+    @State private var showingDeleteAlert: Bool = false
+    
+    // Add support for editing existing cards
+    let cardToEdit: PokemonCard?
+    @Binding var showingEditSheet: Bool
     
     @ObservedObject var pokemonFetcher = PokemonNameFetcher()
     @ObservedObject var setFetcher = PokemonSetFetcher()
@@ -280,6 +285,18 @@ struct EditView: View {
     @ObservedObject var cardImageFetcher = CardImageFetcher()
     @StateObject private var firebaseService = FirebaseService()
     @EnvironmentObject var authService: AuthService
+    
+    // Initialize for creating new cards
+    init(showingEditSheet: Binding<Bool>) {
+        self.cardToEdit = nil
+        self._showingEditSheet = showingEditSheet
+    }
+    
+    // Initialize for editing existing cards
+    init(card: PokemonCard, showingEditSheet: Binding<Bool>) {
+        self.cardToEdit = card
+        self._showingEditSheet = showingEditSheet
+    }
     
     enum Condition: String, CaseIterable, Identifiable {
         case gemMint = "Gem Mint"
@@ -387,15 +404,33 @@ struct EditView: View {
         
         isSaving = true
         
-        Task {
-            do {
-                try await firebaseService.saveCard(card)
-                await MainActor.run {
-                    isSaving = false
-                    showSuccessAlert = true
-                    clearForm()
-                }
-            } catch {
+                        Task {
+                    do {
+                        if let existingCard = cardToEdit {
+                            // Update existing card
+                            var updatedCard = card
+                            updatedCard.id = existingCard.id
+                            updatedCard.dateAdded = existingCard.dateAdded
+                            try await firebaseService.updateCard(updatedCard)
+                        } else {
+                            // Create new card
+                            try await firebaseService.saveCard(card)
+                        }
+                        
+                        await MainActor.run {
+                            isSaving = false
+                            if cardToEdit != nil {
+                                // For editing, dismiss the sheet and refresh inventory
+                                showSuccessAlert = false // Don't show alert for edit
+                                clearForm()
+                                showingEditSheet = false // Dismiss the sheet
+                            } else {
+                                // For new cards, show success alert
+                                showSuccessAlert = true
+                                clearForm()
+                            }
+                        }
+                    } catch {
                 await MainActor.run {
                     isSaving = false
                     errorMessage = error.localizedDescription
@@ -415,6 +450,38 @@ struct EditView: View {
         setName = ""
         setNumber = ""
         cardImageFetcher.cardImageURL = nil
+    }
+    
+    func populateFormForEditing() {
+        guard let card = cardToEdit else { return }
+        cardName = card.cardName
+        pokemonName = card.pokemonName
+        selectedCondition = Condition(rawValue: card.condition) ?? .nearMint
+        selectedLanguage = card.language
+        selectedItemType = ItemType(rawValue: card.itemType) ?? .raw
+        acquisitionPrice = String(card.acquisitionPrice)
+        setName = card.setName
+        setNumber = card.setNumber
+        cardImageFetcher.cardImageURL = card.cardImageURL
+        qrCodeID = generateUniqueQRCode()
+    }
+    
+    func deleteCard() {
+        guard let card = cardToEdit else { return }
+        
+        Task {
+            do {
+                try await firebaseService.deleteCard(card)
+                await MainActor.run {
+                    showingEditSheet = false // Dismiss the sheet
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
     }
     
     var body: some View {
@@ -629,62 +696,148 @@ struct EditView: View {
                 
                 // Submit button section
                 Section {
-                    Button(action: {
-                        saveCard()
-                    }) {
-                        HStack {
-                            Spacer()
-                            if isSaving {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                    .scaleEffect(0.8)
-                                Text("Saving...")
-                                    .font(.modernHeadline())
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.black)
-                            } else {
-                                Text("Submit Card")
-                                    .font(.modernHeadline())
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.black)
+                    if cardToEdit != nil {
+                        // Edit mode - show both Update and Delete buttons
+                        HStack(spacing: 12) {
+                            // Update button
+                            Button(action: {
+                                saveCard()
+                            }) {
+                                HStack {
+                                    Spacer()
+                                    if isSaving {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                            .scaleEffect(0.8)
+                                        Text("Saving...")
+                                            .font(.modernHeadline())
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.black)
+                                    } else {
+                                        Text("Update Card")
+                                            .font(.modernHeadline())
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.black)
+                                    }
+                                    Spacer()
+                                }
+                                .padding()
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.cyan, .blue]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .cornerRadius(12)
+                                .shadow(color: .cyan.opacity(0.3), radius: 5, x: 0, y: 2)
                             }
-                            Spacer()
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(isSaving)
+                            
+                            // Delete button
+                            Button(action: {
+                                showingDeleteAlert = true
+                            }) {
+                                HStack {
+                                    Spacer()
+                                    Text("Delete Card")
+                                        .font(.modernHeadline())
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                    Spacer()
+                                }
+                                .padding()
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.red, .orange]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .cornerRadius(12)
+                                .shadow(color: .red.opacity(0.3), radius: 5, x: 0, y: 2)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(isSaving)
                         }
-                        .padding()
-                        .background(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.cyan, .blue]),
-                                startPoint: .leading,
-                                endPoint: .trailing
+                    } else {
+                        // Add mode - show only Submit button
+                        Button(action: {
+                            saveCard()
+                        }) {
+                            HStack {
+                                Spacer()
+                                if isSaving {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                        .scaleEffect(0.8)
+                                    Text("Saving...")
+                                        .font(.modernHeadline())
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.black)
+                                } else {
+                                    Text("Submit Card")
+                                        .font(.modernHeadline())
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.black)
+                                }
+                                Spacer()
+                            }
+                            .padding()
+                            .background(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.cyan, .blue]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
                             )
-                        )
-                        .cornerRadius(12)
-                        .shadow(color: .cyan.opacity(0.3), radius: 5, x: 0, y: 2)
+                            .cornerRadius(12)
+                            .shadow(color: .cyan.opacity(0.3), radius: 5, x: 0, y: 2)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(isSaving)
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isSaving)
                 }
                 .alert("Success", isPresented: $showSuccessAlert) {
                     Button("OK", role: .cancel) {}
                 } message: {
-                    Text("Card saved successfully!")
+                    Text(cardToEdit != nil ? "Card updated successfully!" : "Card saved successfully!")
                 }
                 .alert("Error", isPresented: $showErrorAlert) {
                     Button("OK", role: .cancel) {}
                 } message: {
                     Text(errorMessage)
                 }
+                .alert("Delete Card", isPresented: $showingDeleteAlert) {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Delete", role: .destructive) {
+                        deleteCard()
+                    }
+                } message: {
+                    if let card = cardToEdit {
+                        Text("Are you sure you want to delete '\(card.pokemonName)'? This action cannot be undone.")
+                    }
+                }
                 .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .background(Color.black)
-            .navigationTitle("Add or Edit Card")
+            .navigationTitle(cardToEdit != nil ? "Edit Card" : "Add Card")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .onAppear {
                 pokemonFetcher.fetchPokemonNames()
                 setFetcher.fetchSetNames()
+                
+                // Populate form if editing an existing card
+                if cardToEdit != nil {
+                    populateFormForEditing()
+                } else {
+                    // Generate QR code for new cards
+                    qrCodeID = generateUniqueQRCode()
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -696,17 +849,33 @@ struct InventoryView: View {
     @State private var searchText = ""
     @EnvironmentObject var authService: AuthService
     @State private var inboxCount: Int = 0
+    @State private var showOnlyIncomplete: Bool = false
+    @State private var selectedCardForEdit: PokemonCard?
+    @State private var showingEditSheet = false
     
     var filteredCards: [PokemonCard] {
-        if searchText.isEmpty {
-            return firebaseService.cards
-        } else {
-            return firebaseService.cards.filter { card in
+        var cards = firebaseService.cards
+        
+        // Filter by completion status
+        if showOnlyIncomplete {
+            cards = cards.filter { !$0.isComplete }
+        }
+        
+        // Filter by search text
+        if !searchText.isEmpty {
+            cards = cards.filter { card in
                 card.pokemonName.localizedCaseInsensitiveContains(searchText) ||
                 card.setName.localizedCaseInsensitiveContains(searchText) ||
                 card.cardName.localizedCaseInsensitiveContains(searchText)
             }
         }
+        
+        return cards
+    }
+    
+    // Calculate inbox count based on incomplete items
+    var incompleteItemsCount: Int {
+        firebaseService.cards.filter { !$0.isComplete }.count
     }
     
     var body: some View {
@@ -724,17 +893,17 @@ struct InventoryView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
-                } else if firebaseService.cards.isEmpty {
+                } else if filteredCards.isEmpty {
                     VStack(spacing: 20) {
-                        Image(systemName: "tray")
+                        Image(systemName: showOnlyIncomplete ? "checkmark.circle" : "tray")
                             .font(.system(size: 60, design: .rounded))
                             .foregroundColor(.secondary)
                         
-                        Text("No Cards in Inventory")
+                        Text(showOnlyIncomplete ? "No Incomplete Items" : "No Cards in Inventory")
                             .font(.modernTitle2())
                             .foregroundColor(.primary)
                         
-                        Text("Add your first card using the 'Add Card' tab")
+                        Text(showOnlyIncomplete ? "All your cards are complete!" : "Add your first card using the 'Add Card' tab")
                             .font(.modernBody())
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -746,6 +915,10 @@ struct InventoryView: View {
                     List {
                         ForEach(filteredCards) { card in
                             CardRowView(card: card, firebaseService: firebaseService)
+                                .onTapGesture {
+                                    selectedCardForEdit = card
+                                    showingEditSheet = true
+                                }
                         }
                     }
                     .searchable(text: $searchText, prompt: "Search cards...")
@@ -756,26 +929,25 @@ struct InventoryView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Color.black)
-            .navigationTitle("Inventory")
+            .navigationTitle(showOnlyIncomplete ? "Incomplete Items" : "Inventory")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
-                        // TODO: Present inbox view
-                        // Example: reset badge for now
-                        if inboxCount > 0 { inboxCount = 0 } else { inboxCount = 3 }
+                        // Toggle between showing all items and only incomplete items
+                        showOnlyIncomplete.toggle()
                     }) {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "tray.full.fill")
+                            Image(systemName: showOnlyIncomplete ? "tray.fill" : "tray.full.fill")
                                 .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .foregroundColor(.cyan)
-                            if inboxCount > 0 {
+                                .foregroundColor(showOnlyIncomplete ? .orange : .cyan)
+                            if incompleteItemsCount > 0 {
                                 ZStack {
                                     Circle()
                                         .fill(Color.red)
-                                    Text("\(min(inboxCount, 99))")
+                                    Text("\(min(incompleteItemsCount, 99))")
                                         .font(.caption2.weight(.bold))
                                         .foregroundColor(.white)
                                 }
@@ -784,8 +956,8 @@ struct InventoryView: View {
                                 .transition(.scale)
                             }
                         }
-                        .accessibilityLabel("Inbox")
-                        .accessibilityHint("Opens inbox notifications")
+                        .accessibilityLabel(showOnlyIncomplete ? "Show All Items" : "Show Incomplete Items")
+                        .accessibilityHint(showOnlyIncomplete ? "Shows all items in inventory" : "Shows only incomplete items")
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -796,9 +968,23 @@ struct InventoryView: View {
                     await firebaseService.loadCards()
                 }
             }
+            .sheet(isPresented: $showingEditSheet, onDismiss: {
+                // Refresh the cards when the edit sheet is dismissed
+                Task {
+                    await firebaseService.loadCards()
+                }
+            }) {
+                if let card = selectedCardForEdit {
+                    EditView(card: card, showingEditSheet: $showingEditSheet)
+                        .environmentObject(authService)
+                }
+            }
+
         }
         .preferredColorScheme(.dark)
     }
+    
+
 }
 
 struct InventoryCard: View {
@@ -1178,11 +1364,7 @@ struct CameraPicker: UIViewControllerRepresentable {
 // MARK: - Card Row View
 struct CardRowView: View {
     let card: PokemonCard
-    let firebaseService: FirebaseService
-    @State private var showingDeleteAlert = false
-    @State private var isDeleting = false
-    @State private var showingErrorAlert = false
-    @State private var errorMessage = ""
+    let firebaseService: FirebaseService 
     
     var body: some View {
         HStack(alignment: .center) {
@@ -1200,37 +1382,6 @@ struct CardRowView: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Button(action: {
-                showingDeleteAlert = true
-            }) {
-                Image(systemName: "trash")
-                    .foregroundColor(.red)
-                    .font(.system(size: 16))
-                    .padding(6)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .alert("Delete Card", isPresented: $showingDeleteAlert) {
-                Button("Delete", role: .destructive) {
-                    Task {
-                        isDeleting = true
-                        do {
-                            try await firebaseService.deleteCard(card)
-                        } catch {
-                            errorMessage = error.localizedDescription
-                            showingErrorAlert = true
-                        }
-                        isDeleting = false
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Are you sure you want to delete this card?")
-            }
-            .alert("Error", isPresented: $showingErrorAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage)
-            }
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
