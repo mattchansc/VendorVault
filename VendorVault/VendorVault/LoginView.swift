@@ -19,57 +19,53 @@ struct LoginView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Background gradient
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.black, Color.blue.opacity(0.8)]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                // TCG Background
+                TCGGradients.cardBackground
+                    .ignoresSafeArea()
                 
-                VStack(spacing: 30) {
+                VStack(spacing: TCGSpacing.xxxl) {
                     Spacer()
                     
                     // App Logo and Title
-                    VStack(spacing: 20) {
+                    VStack(spacing: TCGSpacing.xl) {
                         Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 80, design: .rounded))
-                            .foregroundColor(.cyan)
-                            .shadow(color: .cyan.opacity(0.5), radius: 10, x: 0, y: 5)
+                            .font(.system(size: 80))
+                            .foregroundColor(TCGTheme.primary)
+                            .shadow(color: TCGTheme.primary.opacity(0.3), radius: 10, x: 0, y: 5)
                         
                         Text("VendorVault")
-                            .font(.modernLargeTitle())
-                            .foregroundColor(.white)
+                            .font(TCGTypography.titleLarge)
+                            .foregroundColor(TCGTheme.textPrimary)
                             .fontWeight(.bold)
                         
                         Text(isRegistering ? "Create your account" : "Welcome back")
-                            .font(.modernTitle2())
-                            .foregroundColor(.white.opacity(0.8))
+                            .font(TCGTypography.titleMedium)
+                            .foregroundColor(TCGTheme.textSecondary)
                     }
                     
                     // Form
-                    VStack(spacing: 20) {
+                    VStack(spacing: TCGSpacing.xl) {
                         // Email field
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: TCGSpacing.sm) {
                             Text("Email")
-                                .font(.modernSubheadline())
-                                .foregroundColor(.white)
+                                .font(TCGTypography.headline)
+                                .foregroundColor(TCGTheme.textPrimary)
                             
                             TextField("Enter your email", text: $email)
-                                .textFieldStyle(CustomTextFieldStyle())
+                                .textFieldStyle(TCGTextFieldStyle())
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
                         }
                         
                         // Password field
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: TCGSpacing.sm) {
                             Text("Password")
-                                .font(.modernSubheadline())
-                                .foregroundColor(.white)
+                                .font(TCGTypography.headline)
+                                .foregroundColor(TCGTheme.textPrimary)
                             
                             SecureField("Enter your password", text: $password)
-                                .textFieldStyle(CustomTextFieldStyle())
+                                .textFieldStyle(TCGTextFieldStyle())
                         }
                         
                         // Forgot Password (only show on login)
@@ -77,8 +73,8 @@ struct LoginView: View {
                             Button("Forgot Password?") {
                                 showForgotPassword = true
                             }
-                            .font(.modernCaption())
-                            .foregroundColor(.cyan)
+                            .font(TCGTypography.caption)
+                            .foregroundColor(TCGTheme.primary)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         
@@ -96,28 +92,20 @@ struct LoginView: View {
                                 }
                                 
                                 Text(authService.isLoading ? "Please wait..." : (isRegistering ? "Create Account" : "Sign In"))
-                                    .font(.modernHeadline())
+                                    .font(TCGTypography.headline)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [.cyan, .blue]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .cornerRadius(12)
-                            .shadow(color: .cyan.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .padding(TCGSpacing.lg)
                         }
+                        .tcgButtonStyle()
                         .disabled(authService.isLoading || email.isEmpty || password.isEmpty)
                         .opacity((email.isEmpty || password.isEmpty) ? 0.6 : 1.0)
                         
                         // Toggle between login and register
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.3)) {
+                            withAnimation(TCGAnimation.easeInOut) {
                                 isRegistering.toggle()
                                 email = ""
                                 password = ""
@@ -125,11 +113,11 @@ struct LoginView: View {
                             }
                         }) {
                             Text(isRegistering ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                                .font(.modernSubheadline())
-                                .foregroundColor(.cyan)
+                                .font(TCGTypography.body)
+                                .foregroundColor(TCGTheme.primary)
                         }
                     }
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, TCGSpacing.xxxl)
                     
                     Spacer()
                 }
@@ -149,7 +137,7 @@ struct LoginView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
     
     private func performAction() async {
@@ -167,17 +155,18 @@ struct LoginView: View {
     }
 }
 
-struct CustomTextFieldStyle: TextFieldStyle {
+struct TCGTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.1))
-                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            .padding(TCGSpacing.md)
+            .background(TCGTheme.secondaryBackground)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(TCGTheme.cardBorderLight, lineWidth: 1)
             )
-            .foregroundColor(.white)
-            .font(.modernBody())
+            .foregroundColor(TCGTheme.textPrimary)
+            .font(TCGTypography.body)
     }
 }
 
@@ -192,40 +181,36 @@ struct ForgotPasswordView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.black, Color.blue.opacity(0.8)]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                TCGGradients.cardBackground
+                    .ignoresSafeArea()
                 
-                VStack(spacing: 30) {
+                VStack(spacing: TCGSpacing.xxxl) {
                     Spacer()
                     
-                    VStack(spacing: 20) {
+                    VStack(spacing: TCGSpacing.xl) {
                         Image(systemName: "envelope.fill")
-                            .font(.system(size: 60, design: .rounded))
-                            .foregroundColor(.cyan)
+                            .font(.system(size: 60))
+                            .foregroundColor(TCGTheme.primary)
                         
                         Text("Reset Password")
-                            .font(.modernLargeTitle())
-                            .foregroundColor(.white)
+                            .font(TCGTypography.titleLarge)
+                            .foregroundColor(TCGTheme.textPrimary)
                         
                         Text("Enter your email address and we'll send you a link to reset your password")
-                            .font(.modernBody())
-                            .foregroundColor(.white.opacity(0.8))
+                            .font(TCGTypography.body)
+                            .foregroundColor(TCGTheme.textSecondary)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
+                            .padding(.horizontal, TCGSpacing.xxxl)
                     }
                     
-                    VStack(spacing: 20) {
-                        VStack(alignment: .leading, spacing: 8) {
+                    VStack(spacing: TCGSpacing.xl) {
+                        VStack(alignment: .leading, spacing: TCGSpacing.sm) {
                             Text("Email")
-                                .font(.modernSubheadline())
-                                .foregroundColor(.white)
+                                .font(TCGTypography.headline)
+                                .foregroundColor(TCGTheme.textPrimary)
                             
                             TextField("Enter your email", text: $email)
-                                .textFieldStyle(CustomTextFieldStyle())
+                                .textFieldStyle(TCGTextFieldStyle())
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
@@ -244,25 +229,18 @@ struct ForgotPasswordView: View {
                                 }
                                 
                                 Text(authService.isLoading ? "Sending..." : "Send Reset Link")
-                                    .font(.modernHeadline())
+                                    .font(TCGTypography.headline)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [.cyan, .blue]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .cornerRadius(12)
+                            .padding(TCGSpacing.lg)
                         }
+                        .tcgButtonStyle()
                         .disabled(authService.isLoading || email.isEmpty)
                         .opacity(email.isEmpty ? 0.6 : 1.0)
                     }
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, TCGSpacing.xxxl)
                     
                     Spacer()
                 }
@@ -274,7 +252,7 @@ struct ForgotPasswordView: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .foregroundColor(.cyan)
+                    .foregroundColor(TCGTheme.primary)
                 }
             }
             .alert(isSuccess ? "Success" : "Error", isPresented: $showAlert) {
@@ -294,7 +272,7 @@ struct ForgotPasswordView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
     
     private func resetPassword() async {
